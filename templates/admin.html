@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cantinho do Lanche — Painel do Lojista</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="brand-eyebrow">painel do lojista</div>
+      <h1>Cantinho <span>do Lanche</span></h1>
+      <div class="subtitle">Estoque, produtos e pedidos.</div>
+    </div>
+    <a class="nav-link" href="/">Ver página do cliente</a>
+  </header>
+
+  <div id="loginView" class="login-box">
+    <div class="field">
+      <label>Token de acesso admin</label>
+      <input type="password" id="tokenInput" placeholder="Cole o ADMIN_TOKEN">
+    </div>
+    <button class="btn" id="loginBtn">Entrar</button>
+    <div class="hint">O token é definido na variável <b>ADMIN_TOKEN</b> do arquivo <b>.env</b>.</div>
+  </div>
+
+  <div id="adminView" style="display:none;">
+    <div class="section-title">Pedidos</div>
+    <table>
+      <thead>
+        <tr><th>#</th><th>Cliente</th><th>Itens</th><th>Total</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody id="ordersBody"></tbody>
+    </table>
+
+    <div class="section-title">Produtos e estoque</div>
+    <table>
+      <thead>
+        <tr><th>Nome</th><th>Preço</th><th>Estoque</th><th>Ativo</th><th></th></tr>
+      </thead>
+      <tbody id="productsBody"></tbody>
+    </table>
+
+    <div class="field" style="max-width:520px;margin-top:20px;">
+      <label>Adicionar novo produto</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input type="text" id="newName" placeholder="Nome" style="flex:1;min-width:140px;">
+        <input type="text" id="newPrice" placeholder="Preço" style="width:100px;">
+        <input type="text" id="newStock" placeholder="Estoque" style="width:100px;">
+        <button class="small-btn" id="addProductBtn">+ Adicionar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/static/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cantinho do Lanche — Fazer Pedido</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="brand-eyebrow">pedido online</div>
+      <h1>Cantinho <span>do Lanche</span></h1>
+      <div class="subtitle">Monte seu pedido e pague na hora com Pix.</div>
+    </div>
+    <a class="nav-link" href="/admin">Painel do lojista</a>
+  </header>
+
+  <div class="layout">
+    <div>
+      <div class="menu-grid" id="menuGrid"></div>
+    </div>
+
+    <div class="summary">
+      <h2>Resumo do pedido</h2>
+      <div id="summaryLines"><div class="summary-empty">Nenhum item selecionado ainda.</div></div>
+
+      <div class="summary-total">
+        <div class="label">Total</div>
+        <div class="value" id="totalValue">R$ 0,00</div>
+      </div>
+
+      <div class="field">
+        <label>Seu nome</label>
+        <input type="text" id="customerName" placeholder="Nome">
+      </div>
+      <div class="field">
+        <label>WhatsApp</label>
+        <input type="text" id="customerPhone" placeholder="(00) 00000-0000">
+      </div>
+      <div class="field">
+        <label>Observação</label>
+        <textarea id="orderNote" placeholder="Endereço, horário de retirada..."></textarea>
+      </div>
+
+      <button class="btn" id="checkoutBtn" disabled>Fechar pedido e gerar Pix</button>
+      <button class="btn-ghost" id="clearBtn">Limpar pedido</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="pixModal">
+  <div class="modal">
+    <div class="brand-eyebrow">pagamento</div>
+    <h1 style="font-size:20px;margin-top:6px;">Escaneie o Pix</h1>
+    <div id="pixTotal" style="color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:22px;margin-top:8px;"></div>
+    <img id="pixImg" alt="QR Code Pix">
+    <div class="pix-code" id="pixCode"></div>
+    <button class="btn copy-btn" id="copyPixBtn">Copiar código Pix</button>
+    <button class="btn-ghost" id="notifyWhatsBtn">Avisar no WhatsApp</button>
+    <button class="btn-ghost" id="closeModalBtn">Fechar</button>
+    <div class="hint">Pedido nº <b><span id="orderIdLabel"></span></b>. Após o pagamento, o lojista confirma manualmente.</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

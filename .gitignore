@@ -1,0 +1,13 @@
+node_modules/
+.env
+
+# Dados locais: faça backup fora do repositório antes de publicar.
+*.db
+*.db-shm
+*.db-wal
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
