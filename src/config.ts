@@ -26,3 +26,5 @@ export const CORS_ORIGINS = (env.CORS_ORIGINS ?? "")
   .filter(Boolean);
 
 export const PORT = Number(env.PORT ?? 8000);
+// Em produção atrás de um proxy (Caddy), use 127.0.0.1 para não expor a porta.
+export const HOST = env.HOST ?? "0.0.0.0";

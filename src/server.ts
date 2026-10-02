@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { join, resolve, sep } from "node:path";
 
-import { ADMIN_TOKEN, BASE_DIR, CORS_ORIGINS, PORT } from "./config";
+import { ADMIN_TOKEN, BASE_DIR, CORS_ORIGINS, HOST, PORT } from "./config";
 import {
   ORDER_STATUSES,
   db,
@@ -299,6 +299,7 @@ async function handle(req: Request): Promise<Response> {
 
 const server = Bun.serve({
   port: PORT,
+  hostname: HOST,
   async fetch(req) {
     let res: Response;
     try {

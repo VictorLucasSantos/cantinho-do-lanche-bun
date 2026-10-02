@@ -81,6 +81,10 @@ pública use HTTPS e, idealmente, um login de verdade.
 
 ## Deploy
 
+**Grátis na Oracle Cloud:** siga o passo a passo em
+[deploy/ORACLE.md](deploy/ORACLE.md) — o script `deploy/setup.sh` instala
+tudo (Bun, serviço systemd, HTTPS com Caddy e backup diário do banco).
+
 O PythonAnywhere **não roda Bun**. Opções que funcionam: Railway, Render,
 Fly.io ou uma VPS. Como o banco é um arquivo SQLite, o serviço precisa de
 **disco persistente** (volume) — aponte `DATABASE_PATH` para dentro dele.
