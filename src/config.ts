@@ -15,8 +15,20 @@ export const MERCHANT_CITY = (env.MERCHANT_CITY ?? "SAO PAULO").slice(0, 15);
 // Comparado no header "Authorization: Bearer <token>" enviado pelo painel admin.
 export const ADMIN_TOKEN = env.ADMIN_TOKEN ?? "troque-este-token";
 
-// ── Banco de dados (SQLite nativo do Bun) ──
-export const DATABASE_PATH = env.DATABASE_PATH ?? join(BASE_DIR, "cantinho.db");
+// ── Banco de dados ──
+// Turso (Render): TURSO_DATABASE_URL=libsql://... e TURSO_AUTH_TOKEN=...
+// Sem essas variáveis, usa um arquivo SQLite local (DATABASE_PATH).
+const DATABASE_PATH = env.DATABASE_PATH ?? join(BASE_DIR, "cantinho.db");
+export const DATABASE_URL =
+  env.TURSO_DATABASE_URL || "file:" + DATABASE_PATH.replaceAll("\\", "/");
+export const DATABASE_AUTH_TOKEN = env.TURSO_AUTH_TOKEN || undefined;
+
+// O disco do plano grátis do Render é apagado a cada deploy/reinício:
+// sem Turso, todos os pedidos seriam perdidos.
+if (env.RENDER && !env.TURSO_DATABASE_URL) {
+  console.error("❌ No Render, configure TURSO_DATABASE_URL e TURSO_AUTH_TOKEN (veja deploy/RENDER.md).");
+  process.exit(1);
+}
 
 // Deixe vazio para não adicionar o cabeçalho CORS (o site e a API são same-origin).
 // Para um frontend em outro domínio, informe uma lista separada por vírgulas.

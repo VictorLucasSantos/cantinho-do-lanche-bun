@@ -4,21 +4,28 @@ import { join, resolve, sep } from "node:path";
 import { ADMIN_TOKEN, BASE_DIR, CORS_ORIGINS, HOST, PORT } from "./config";
 import {
   ORDER_STATUSES,
+  all,
   db,
+  get,
+  initDb,
   nowUtc,
   orderOut,
   productOut,
+  run,
+  type Executor,
   type OrderItemRow,
   type OrderRow,
   type ProductRow,
 } from "./db";
 import * as pix from "./pix";
+import { seedIfEmpty } from "./seed";
 import {
   HttpError,
   parseOrderCreate,
   parseOrderStatusUpdate,
   parseProductCreate,
   parseProductUpdate,
+  type OrderCreate,
 } from "./validation";
 
 const STATIC_DIR = join(BASE_DIR, "static");
@@ -51,90 +58,87 @@ function requireAdmin(req: Request) {
 
 // ---------- consultas ----------
 const q = {
-  activeProducts: db.query<ProductRow, []>(
-    "SELECT * FROM products WHERE active = 1 ORDER BY name",
-  ),
-  allProducts: db.query<ProductRow, []>("SELECT * FROM products ORDER BY name"),
-  product: db.query<ProductRow, [number]>("SELECT * FROM products WHERE id = ?"),
-  insertProduct: db.query<ProductRow, [string, number, number, number, string]>(
-    "INSERT INTO products (name, price, stock_qty, active, created_at) VALUES (?, ?, ?, ?, ?) RETURNING *",
-  ),
-  productUsage: db.query<{ n: number }, [number]>(
-    "SELECT COUNT(*) AS n FROM order_items WHERE product_id = ?",
-  ),
-  deleteProduct: db.query<null, [number]>("DELETE FROM products WHERE id = ?"),
-  decrementStock: db.query<null, [number, number]>(
-    "UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?",
-  ),
+  activeProducts: () =>
+    all<ProductRow>("SELECT * FROM products WHERE active = 1 ORDER BY name"),
+  allProducts: () => all<ProductRow>("SELECT * FROM products ORDER BY name"),
+  product: (id: number, exec?: Executor) =>
+    get<ProductRow>("SELECT * FROM products WHERE id = ?", [id], exec),
 
-  order: db.query<OrderRow, [number]>("SELECT * FROM orders WHERE id = ?"),
-  allOrders: db.query<OrderRow, []>("SELECT * FROM orders ORDER BY created_at DESC, id DESC"),
-  insertOrder: db.query<OrderRow, [string | null, string | null, string | null, number, string, string, string]>(
-    `INSERT INTO orders (customer_name, customer_phone, note, total, status, pix_txid, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`,
-  ),
-  updateOrderStatus: db.query<OrderRow, [string, number]>(
-    "UPDATE orders SET status = ? WHERE id = ? RETURNING *",
-  ),
-  orderItems: db.query<OrderItemRow, [number]>(
-    "SELECT * FROM order_items WHERE order_id = ? ORDER BY id",
-  ),
-  allOrderItems: db.query<OrderItemRow, []>("SELECT * FROM order_items ORDER BY id"),
-  insertOrderItem: db.query<null, [number, number, string, number, number]>(
-    "INSERT INTO order_items (order_id, product_id, product_name, unit_price, qty) VALUES (?, ?, ?, ?, ?)",
-  ),
+  order: (id: number) => get<OrderRow>("SELECT * FROM orders WHERE id = ?", [id]),
+  allOrders: () => all<OrderRow>("SELECT * FROM orders ORDER BY created_at DESC, id DESC"),
+  orderItems: (orderId: number) =>
+    all<OrderItemRow>("SELECT * FROM order_items WHERE order_id = ? ORDER BY id", [orderId]),
+  allOrderItems: () => all<OrderItemRow>("SELECT * FROM order_items ORDER BY id"),
 };
 
-function getProductOr404(id: number): ProductRow {
-  const product = q.product.get(id);
+async function getProductOr404(id: number): Promise<ProductRow> {
+  const product = await q.product(id);
   if (!product) throw new HttpError(404, "Produto não encontrado");
   return product;
 }
 
-function getOrderOr404(id: number): OrderRow {
-  const order = q.order.get(id);
+async function getOrderOr404(id: number): Promise<OrderRow> {
+  const order = await q.order(id);
   if (!order) throw new HttpError(404, "Pedido não encontrado");
   return order;
 }
 
 // Cria o pedido e desconta o estoque numa única transação: se qualquer
 // item falhar, nada é gravado.
-const createOrderTx = db.transaction((payload: ReturnType<typeof parseOrderCreate>) => {
-  const lines: Omit<OrderItemRow, "order_id">[] = [];
-  let total = 0;
+async function createOrder(payload: OrderCreate): Promise<OrderRow> {
+  const tx = await db.transaction("write");
+  try {
+    const lines: Omit<OrderItemRow, "order_id">[] = [];
+    let total = 0;
 
-  for (const item of payload.items) {
-    const product = q.product.get(item.product_id);
-    if (!product || !product.active) {
-      throw new HttpError(400, `Produto ${item.product_id} indisponível`);
+    for (const item of payload.items) {
+      const product = await q.product(item.product_id, tx);
+      if (!product || !product.active) {
+        throw new HttpError(400, `Produto ${item.product_id} indisponível`);
+      }
+      if (product.stock_qty < item.qty) {
+        throw new HttpError(400, `Estoque insuficiente para '${product.name}'`);
+      }
+      await run("UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?", [item.qty, product.id], tx);
+      total += product.price * item.qty;
+      lines.push({
+        product_id: product.id,
+        product_name: product.name,
+        unit_price: product.price,
+        qty: item.qty,
+      });
     }
-    if (product.stock_qty < item.qty) {
-      throw new HttpError(400, `Estoque insuficiente para '${product.name}'`);
-    }
-    q.decrementStock.run(item.qty, product.id);
-    total += product.price * item.qty;
-    lines.push({
-      product_id: product.id,
-      product_name: product.name,
-      unit_price: product.price,
-      qty: item.qty,
-    });
-  }
 
-  const order = q.insertOrder.get(
-    payload.customer_name,
-    payload.customer_phone,
-    payload.note,
-    Math.round(total * 100) / 100,
-    "aguardando_pagamento",
-    crypto.randomUUID().replaceAll("-", "").slice(0, 25),
-    nowUtc(),
-  )!;
-  for (const l of lines) {
-    q.insertOrderItem.run(order.id, l.product_id, l.product_name, l.unit_price, l.qty);
+    const order = (await get<OrderRow>(
+      `INSERT INTO orders (customer_name, customer_phone, note, total, status, pix_txid, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`,
+      [
+        payload.customer_name,
+        payload.customer_phone,
+        payload.note,
+        Math.round(total * 100) / 100,
+        "aguardando_pagamento",
+        crypto.randomUUID().replaceAll("-", "").slice(0, 25),
+        nowUtc(),
+      ],
+      tx,
+    ))!;
+    for (const l of lines) {
+      await run(
+        "INSERT INTO order_items (order_id, product_id, product_name, unit_price, qty) VALUES (?, ?, ?, ?, ?)",
+        [order.id, l.product_id, l.product_name, l.unit_price, l.qty],
+        tx,
+      );
+    }
+    await tx.commit();
+    return order;
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  } finally {
+    tx.close();
   }
-  return order;
-});
+}
 
 // ---------- rotas ----------
 type Handler = (req: Request, id: number) => Response | Promise<Response>;
@@ -151,17 +155,20 @@ const routes: Route[] = [
   route("GET", "/admin", () => new Response(Bun.file(join(TEMPLATES_DIR, "admin.html")))),
 
   // ---------- produtos (públicos: só leitura de ativos) ----------
-  route("GET", "/products", () => json(q.activeProducts.all().map(productOut))),
+  route("GET", "/products", async () => json((await q.activeProducts()).map(productOut))),
 
   // ---------- produtos (admin: CRUD completo, inclusive estoque) ----------
-  route("GET", "/admin/products", () => json(q.allProducts.all().map(productOut)), true),
+  route("GET", "/admin/products", async () => json((await q.allProducts()).map(productOut)), true),
 
   route(
     "POST",
     "/admin/products",
     async (req) => {
       const p = parseProductCreate(await readJson(req));
-      const row = q.insertProduct.get(p.name, p.price, p.stock_qty, p.active ? 1 : 0, nowUtc())!;
+      const row = (await get<ProductRow>(
+        "INSERT INTO products (name, price, stock_qty, active, created_at) VALUES (?, ?, ?, ?, ?) RETURNING *",
+        [p.name, p.price, p.stock_qty, p.active ? 1 : 0, nowUtc()],
+      ))!;
       return json(productOut(row));
     },
     true,
@@ -171,17 +178,17 @@ const routes: Route[] = [
     "PUT",
     "/admin/products/:id",
     async (req, id) => {
-      const current = getProductOr404(id);
+      const current = await getProductOr404(id);
       const changes = parseProductUpdate(await readJson(req));
       const next = { ...productOut(current), ...changes };
-      db.run("UPDATE products SET name = ?, price = ?, stock_qty = ?, active = ? WHERE id = ?", [
+      await run("UPDATE products SET name = ?, price = ?, stock_qty = ?, active = ? WHERE id = ?", [
         next.name,
         next.price,
         next.stock_qty,
         next.active ? 1 : 0,
         id,
       ]);
-      return json(productOut(getProductOr404(id)));
+      return json(productOut(await getProductOr404(id)));
     },
     true,
   ),
@@ -189,15 +196,19 @@ const routes: Route[] = [
   route(
     "DELETE",
     "/admin/products/:id",
-    (_req, id) => {
-      getProductOr404(id);
-      if (q.productUsage.get(id)!.n > 0) {
+    async (_req, id) => {
+      await getProductOr404(id);
+      const usage = await get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM order_items WHERE product_id = ?",
+        [id],
+      );
+      if (usage!.n > 0) {
         throw new HttpError(
           400,
           "Este produto já aparece em pedidos — desative-o em vez de excluir",
         );
       }
-      q.deleteProduct.run(id);
+      await run("DELETE FROM products WHERE id = ?", [id]);
       return json({ ok: true });
     },
     true,
@@ -209,31 +220,32 @@ const routes: Route[] = [
     if (payload.items.length === 0) {
       throw new HttpError(400, "O pedido precisa ter ao menos um item");
     }
-    const order = createOrderTx(payload);
+    const order = await createOrder(payload);
 
     const pixPayload = pix.buildPixPayload(order.total, order.pix_txid!, "Pedido Cantinho do Lanche");
     return json({
-      order: orderOut(order, q.orderItems.all(order.id)),
+      order: orderOut(order, await q.orderItems(order.id)),
       pix_copia_e_cola: pixPayload,
       pix_qrcode_base64: await pix.generateQrcodeBase64(pixPayload),
     });
   }),
 
-  route("GET", "/orders/:id", (_req, id) => {
-    const order = getOrderOr404(id);
-    return json(orderOut(order, q.orderItems.all(id)));
+  route("GET", "/orders/:id", async (_req, id) => {
+    const order = await getOrderOr404(id);
+    return json(orderOut(order, await q.orderItems(id)));
   }),
 
   // ---------- pedidos (admin: listar todos, mudar status) ----------
   route(
     "GET",
     "/admin/orders",
-    () => {
+    async () => {
+      const [orders, items] = await Promise.all([q.allOrders(), q.allOrderItems()]);
       const itemsByOrder = new Map<number, OrderItemRow[]>();
-      for (const item of q.allOrderItems.all()) {
+      for (const item of items) {
         itemsByOrder.set(item.order_id, [...(itemsByOrder.get(item.order_id) ?? []), item]);
       }
-      return json(q.allOrders.all().map((o) => orderOut(o, itemsByOrder.get(o.id) ?? [])));
+      return json(orders.map((o) => orderOut(o, itemsByOrder.get(o.id) ?? [])));
     },
     true,
   ),
@@ -242,13 +254,16 @@ const routes: Route[] = [
     "PUT",
     "/admin/orders/:id/status",
     async (req, id) => {
-      getOrderOr404(id);
+      await getOrderOr404(id);
       const { status } = parseOrderStatusUpdate(await readJson(req));
       if (!(ORDER_STATUSES as readonly string[]).includes(status)) {
         throw new HttpError(400, `Status inválido. Use um de: ${ORDER_STATUSES.join(", ")}`);
       }
-      const order = q.updateOrderStatus.get(status, id)!;
-      return json(orderOut(order, q.orderItems.all(id)));
+      const order = (await get<OrderRow>(
+        "UPDATE orders SET status = ? WHERE id = ? RETURNING *",
+        [status, id],
+      ))!;
+      return json(orderOut(order, await q.orderItems(id)));
     },
     true,
   ),
@@ -290,12 +305,17 @@ async function handle(req: Request): Promise<Response> {
     pathMatched = true;
     if (r.method !== req.method) continue;
     if (r.admin) requireAdmin(req);
-    return r.handler(req, Number(m[1]));
+    return await r.handler(req, Number(m[1]));
   }
   return pathMatched
     ? json({ detail: "Method Not Allowed" }, 405)
     : json({ detail: "Not Found" }, 404);
 }
+
+// Cria as tabelas e, num banco novo, o cardápio inicial — no Render não há
+// terminal para rodar "bun run seed" à mão.
+await initDb();
+await seedIfEmpty();
 
 const server = Bun.serve({
   port: PORT,

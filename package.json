@@ -9,6 +9,7 @@
     "seed": "bun run src/seed.ts"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

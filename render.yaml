@@ -1,0 +1,21 @@
+# Blueprint do Render: em render.com → New → Blueprint, escolha este repositório.
+# Os valores com "sync: false" são pedidos na tela durante a criação.
+services:
+  - type: web
+    name: cantinho-do-lanche
+    runtime: docker
+    plan: free
+    healthCheckPath: /products
+    envVars:
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: PIX_KEY
+        sync: false
+      - key: MERCHANT_NAME
+        sync: false
+      - key: MERCHANT_CITY
+        sync: false
+      - key: ADMIN_TOKEN
+        generateValue: true
