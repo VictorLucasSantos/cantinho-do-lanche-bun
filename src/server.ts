@@ -289,12 +289,15 @@ function withCors(req: Request, res: Response): Response {
 
 async function handle(req: Request): Promise<Response> {
   const { pathname } = new URL(req.url);
+  // HEAD responde como GET (o Bun descarta o corpo); monitores como o
+  // UptimeRobot usam HEAD para checar se o site está no ar.
+  const method = req.method === "HEAD" ? "GET" : req.method;
 
-  if (req.method === "OPTIONS" && CORS_ORIGINS.length) {
+  if (method === "OPTIONS" && CORS_ORIGINS.length) {
     return new Response(null, { status: 204 });
   }
 
-  if (req.method === "GET" && pathname.startsWith("/static/")) {
+  if (method === "GET" && pathname.startsWith("/static/")) {
     return (await serveStatic(pathname)) ?? json({ detail: "Not Found" }, 404);
   }
 
@@ -303,7 +306,7 @@ async function handle(req: Request): Promise<Response> {
     const m = r.pattern.exec(pathname);
     if (!m) continue;
     pathMatched = true;
-    if (r.method !== req.method) continue;
+    if (r.method !== method) continue;
     if (r.admin) requireAdmin(req);
     return await r.handler(req, Number(m[1]));
   }
